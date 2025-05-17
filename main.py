@@ -1,101 +1,85 @@
-import logging
 import csv
 import os
-from telegram import Update
+import asyncio
+from telegram import Update, InputFile
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# Константи
+# === КОНСТАНТИ ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_USERNAME = "@veltortoken"
 MAX_USERS = 1500
-CSV_FILE = "wallets.csv"
+CSV_FILE = "users.csv"
 ADMIN_ID = 5475497037
 
-# Словник для унікальних користувачів
 submitted_users = {}
 
-# Налаштування логів
-logging.basicConfig(level=logging.INFO)
+# === ФУНКЦІЯ ЗБЕРЕЖЕННЯ АДРЕСИ ===
+def save_address(user_id, username, eth_address):
+    submitted_users[user_id] = (username, eth_address)
+    with open(CSV_FILE, "w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["ID", "Username", "Address"])
+        for uid, (uname, addr) in submitted_users.items():
+            writer.writerow([uid, uname, addr])
 
+# === ФУНКЦІЯ ЗАВАНТАЖЕННЯ ===
+def load_submitted_users():
+    if not os.path.exists(CSV_FILE):
+        return
+    with open(CSV_FILE, "r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            submitted_users[int(row["ID"])] = (row["Username"], row["Address"])
+
+# === СТАРТ ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if user_id in submitted_users:
-        await update.message.reply_text("Ви вже надіслали адресу. Очікуйте на дроп.")
+    user = update.effective_user
+    if user.id in submitted_users:
+        await update.message.reply_text("Ви вже надіслали адресу. Очікуйте на дроп 20 липня 2025 року!")
         return
-
     if len(submitted_users) >= MAX_USERS:
-        await update.message.reply_text(
-            "Дякуємо за інтерес, але участь у цьому дропі вже завершено. "
-            "Слідкуйте за новинами у нашому каналі!"
-        )
+        await update.message.reply_text("Дякуємо за інтерес, але участь у цьому дропі вже завершено.")
         return
-
     await update.message.reply_text(
-        "✅ Щоб отримати токени, підпишіться на канал https://t.me/veltortoken та запросіть 10 друзів.\n"
-        "Коли все виконано — натисніть /start ще раз і надішліть свою Ethereum-адресу."
+        "✅ Щоб отримати токени, підпишіться на канал https://t.me/veltortoken та запросіть 10 друзів."
+        "\n\nКоли все буде виконано — натисніть /start ще раз і надішліть свою Ethereum-адресу."
     )
 
+# === ОБРОБКА ETH-АДРЕСИ ===
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    user_id = user.id
     text = update.message.text.strip()
-
-    if user_id in submitted_users:
-        await update.message.reply_text("Ви вже надіслали адресу.")
+    if user.id in submitted_users:
         return
-
     if not text.startswith("0x") or len(text) != 42:
-        await update.message.reply_text("Невірна Ethereum-адреса. Має починатися з 0x та містити 42 символи.")
+        await update.message.reply_text("Невірна Ethereum-адреса. Вона має починатися з 0x та містити 42 символи.")
+        return
+    if any(addr == text for _, addr in submitted_users.values()):
+        await update.message.reply_text("Ця адреса вже була використана.")
         return
 
-    if text in submitted_users.values():
-        await update.message.reply_text("Ця адреса вже використана.")
-        return
+    save_address(user.id, user.username or "", text)
+    await update.message.reply_text("✅ Вашу адресу збережено. Очікуйте на дроп 20 липня 2025 року!")
 
-    submitted_users[user_id] = text
+    # Якщо кожні 50 — надсилаємо CSV
+    if len(submitted_users) % 50 == 0:
+        await context.bot.send_document(chat_id=ADMIN_ID, document=InputFile(CSV_FILE))
 
-    with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow([user_id, user.username or "", text])
-
-    await update.message.reply_text(
-        "Дякуємо! Вашу адресу збережено.\nОчікуйте на дроп 20 липня 2025 року!"
-    )
-
-async def export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# === ЕКСПОРТ ТІЛЬКИ ДЛЯ АДМІНА ===
+async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("У вас немає прав для цієї команди.")
         return
+    if os.path.exists(CSV_FILE):
+        await context.bot.send_document(chat_id=ADMIN_ID, document=InputFile(CSV_FILE))
 
-    if not os.path.exists(CSV_FILE):
-        await update.message.reply_text("Файл ще не створено.")
-        return
-
-    with open(CSV_FILE, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    await update.message.reply_text(f"<code>{content}</code>", parse_mode="HTML")
-
+# === ГОЛОВНА ФУНКЦІЯ ===
 async def main():
+    load_submitted_users()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("export", export_data))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    app.add_handler(CommandHandler("export", export_csv))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     await app.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
-    import sys
-
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-    from telegram.ext import ApplicationBuilder
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("export", export_data))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-
-    app.run_polling()
+    asyncio.run(main())
