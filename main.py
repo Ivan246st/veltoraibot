@@ -9,8 +9,8 @@ from telegram.ext import (
     ContextTypes, filters
 )
 
-# Налаштування
-BOT_TOKEN = "7953555451:AAEtM0b67_QBDGE8dx5UT82SIhiv9TNFCeA"
+# Змінні середовища
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_ID = 5475497037
 CSV_FILE = "wallets.csv"
 MAX_WALLETS = 1500
@@ -21,7 +21,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Flask сервер для Render
+# Flask для Render
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
@@ -77,10 +77,9 @@ async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Файл ще не створено.")
 
-# Головна функція
+# Запуск
 def main():
-    threading.Thread(target=run_flask).start()  # Запуск Flask-сервера у фоні
-
+    threading.Thread(target=run_flask).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("export", export))
