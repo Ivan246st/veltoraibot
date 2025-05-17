@@ -66,7 +66,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_address(user_id, username, text)
     submitted_users.add(user_id)
 
-    await update.message.reply_text("✅ Адресу збережено. Очікуйте на дроп 28 травня 2025 року!")
+    await update.message.reply_text("✅ Адресу збережено. Очікуйте на дроп.")
 
     # Якщо кожні 50 нових — надсилаємо файл адміну
     if len(submitted_users) % 50 == 0:
