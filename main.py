@@ -56,13 +56,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text.startswith("0x") and len(text) == 42:
-        with open(CSV_FILE, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            next(reader, None)
-            for row in reader:
-                if text == row[2]:
-                    await update.message.reply_text("Ця адреса вже була використана.")
-                    return
+        if os.path.exists(CSV_FILE):
+            with open(CSV_FILE, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader, None)
+                for row in reader:
+                    if text == row[2]:
+                        await update.message.reply_text("Ця адреса вже була використана.")
+                        return
 
         save_address(user_id, user_name, text)
         submitted_users.add(user_id)
@@ -74,13 +75,8 @@ async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    await app.initialize()
-    await app.start()
-    print("Bot started...")
-    await app.updater.start_polling()
-    await app.updater.idle()
+    await app.run_polling()
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.get_event_loop().create_task(main())
-    asyncio.get_event_loop().run_forever()
+    asyncio.run(main())
