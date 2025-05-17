@@ -87,8 +87,14 @@ async def main():
 # === Запуск (сумісно з Render) ===
 if __name__ == '__main__':
     import asyncio
+
     try:
         asyncio.run(main())
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
+    except RuntimeError as e:
+        import sys
+        if "cannot be called from a running event loop" in str(e) or "There is no current event loop" in str(e):
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(main())
+        else:
+            raise
