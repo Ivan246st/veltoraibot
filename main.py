@@ -1,99 +1,92 @@
-import os
-import csv
-import asyncio
 import logging
-from telegram import Update, InputFile
+import csv
+import os
+import threading
+from flask import Flask
+from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    ContextTypes, filters
 )
 
-# --- Налаштування ---
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 5475497037  # твій Telegram ID
-CHANNEL_USERNAME = "veltortoken"  # назва каналу без @
-CSV_FILE = "users.csv"
-MAX_USERS = 1500
+# Налаштування
+BOT_TOKEN = "7953555451:AAEtM0b67_QBDGE8dx5UT82SIhiv9TNFCeA"
+ADMIN_ID = 5475497037
+CSV_FILE = "wallets.csv"
+MAX_WALLETS = 1500
 
-# --- Ініціалізація логування ---
+# Логування
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 
-# --- Завантаження існуючих користувачів ---
-submitted_users = set()
-if os.path.exists(CSV_FILE):
-    with open(CSV_FILE, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        submitted_users = {row[0] for row in reader}
+# Flask сервер для Render
+flask_app = Flask(__name__)
 
-# --- Збереження адреси ---
-def save_address(user_id, username, eth_address):
-    with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow([user_id, username, eth_address])
+@flask_app.route('/')
+def home():
+    return "Veltor Airdrop Bot is running."
 
-# --- Обробка /start ---
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=10000)
+
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-
-    if user_id in submitted_users:
-        await update.message.reply_text("Ти вже надіслав адресу. Очікуй на дроп.")
+    if os.path.exists(CSV_FILE) and sum(1 for _ in open(CSV_FILE)) >= MAX_WALLETS:
+        await update.message.reply_text("⛔ Набір учасників завершено. Дякуємо за інтерес!")
         return
 
     await update.message.reply_text(
-        "✅ Щоб отримати токени, підпишіться на канал https://t.me/veltortoken та запросіть 10 друзів.\n\n"
-        "Коли все буде виконано — натисни /start ще раз і надішли свою Ethereum-адресу."
+        "✅ Щоб отримати токени, підпишіться на канал https://t.me/veltortoken та запросіть 10 друзів.\n"
+        "Надішліть свою ETH-адресу з MetaMask (вона починається на 0x…)."
     )
 
-# --- Обробка повідомлень (Ethereum адреса) ---
+# ETH-адреси
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    username = update.effective_user.username or ""
-    text = update.message.text.strip()
+    address = update.message.text.strip()
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username or ""
 
-    if user_id in submitted_users:
-        await update.message.reply_text("Ти вже надіслав адресу. Очікуй на дроп.")
+    if not address.startswith("0x") or len(address) != 42:
+        await update.message.reply_text("❌ Це не схоже на коректну ETH-адресу з MetaMask. Спробуйте ще раз.")
         return
 
-    if not text.startswith("0x") or len(text) != 42:
-        await update.message.reply_text("Невірна Ethereum-адреса. Спробуй ще раз.")
+    current_count = sum(1 for _ in open(CSV_FILE)) if os.path.exists(CSV_FILE) else 0
+    if current_count >= MAX_WALLETS:
+        await update.message.reply_text("⛔ Набір завершено. Досягнуто ліміт у 1500 учасників.")
         return
 
-    save_address(user_id, username, text)
-    submitted_users.add(user_id)
+    with open(CSV_FILE, mode="a", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([user_id, username, address])
 
-    await update.message.reply_text("✅ Адресу збережено. Очікуйте на дроп.")
+    await update.message.reply_text("✅ Адресу збережено! Дякуємо за участь у Veltor Airdrop.")
 
-    # Якщо кожні 50 нових — надсилаємо файл адміну
-    if len(submitted_users) % 50 == 0:
-        try:
-            with open(CSV_FILE, "rb") as f:
-                await context.bot.send_document(chat_id=ADMIN_ID, document=InputFile(f), caption="Нові 50 користувачів.")
-        except Exception as e:
-            logging.error(f"Не вдалося надіслати CSV файл адміну: {e}")
+    if (current_count + 1) % 50 == 0:
+        await context.bot.send_document(chat_id=ADMIN_ID, document=open(CSV_FILE, "rb"))
 
-# --- Обробка /export (тільки для адміна) ---
+# /export
 async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("У вас немає доступу до цієї команди.")
+    if str(update.effective_user.id) != str(ADMIN_ID):
+        await update.message.reply_text("⛔ Ця команда доступна лише адміну.")
         return
-    try:
-        with open(CSV_FILE, "rb") as f:
-            await update.message.reply_document(document=InputFile(f), filename="users.csv")
-    except Exception as e:
-        await update.message.reply_text(f"Помилка при надсиланні файлу: {e}")
 
-# --- Запуск бота ---
+    if os.path.exists(CSV_FILE):
+        await update.message.reply_document(document=open(CSV_FILE, "rb"))
+    else:
+        await update.message.reply_text("Файл ще не створено.")
+
+# Головна функція
 def main():
+    threading.Thread(target=run_flask).start()  # Запуск Flask-сервера у фоні
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("export", export))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    print("Бот працює...")
     app.run_polling()
 
-if __name__ == "__main__":
+if name == "__main__":
     main()
