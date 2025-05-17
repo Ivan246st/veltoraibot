@@ -35,6 +35,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "✅ Щоб отримати токени, підпишіться на канал https://t.me/veltortoken та запросіть 10 друзів."
+    )
         "Коли все буде виконано — натисніть /start ще раз і надішліть свою Ethereum-адресу."
     )
 
